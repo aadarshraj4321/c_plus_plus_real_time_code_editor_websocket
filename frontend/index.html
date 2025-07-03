@@ -1,0 +1,134 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <title>Live Code Editor</title>
+  <style>
+    html, body { margin: 0; height: 100%; background: #1e1e1e; color: white; }
+    #editor { width: 100%; height: 90vh; }
+    #status { padding: 10px; font-family: sans-serif; background: #111; }
+  </style>
+</head>
+<body>
+  <div id="editor"></div>
+  <div id="status">Connecting...</div>
+
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/monaco-editor/0.33.0/min/vs/loader.min.js"></script>
+  <script>
+    const username = prompt("Enter your name") || "Anonymous";
+    const color = "#" + Math.floor(Math.random()*16777215).toString(16);
+    let ws;
+    let remoteUpdate = false;
+    let editor;
+    const typingStatus = document.getElementById("status");
+    const otherCursors = new Map();
+
+    require.config({ paths: { vs: "https://cdnjs.cloudflare.com/ajax/libs/monaco-editor/0.33.0/min/vs" }});
+    require(["vs/editor/editor.main"], function () {
+      editor = monaco.editor.create(document.getElementById("editor"), {
+        value: "",
+        language: "javascript",
+        theme: "vs-dark",
+        fontSize: 16
+      });
+
+      ws = new WebSocket("ws://localhost:9002");
+
+      ws.onopen = () => {
+        typingStatus.textContent = "🟢 Connected as " + username;
+      };
+
+      ws.onmessage = function(event) {
+        const msg = JSON.parse(event.data);
+
+        if (msg.username === username) return;
+
+        if (msg.type === "code") {
+          remoteUpdate = true;
+          const fullRange = editor.getModel().getFullModelRange();
+          editor.executeEdits("", [{ range: fullRange, text: msg.code }]);
+        }
+
+        if (msg.type === "cursor") {
+          let d = otherCursors.get(msg.username);
+          if (!d) {
+            const deco = editor.deltaDecorations([], [{
+              range: new monaco.Range(msg.cursor.lineNumber, msg.cursor.column, msg.cursor.lineNumber, msg.cursor.column),
+              options: {
+                className: "remote-cursor",
+                after: { content: " ", inlineClassName: "cursor-" + msg.username }
+              }
+            }]);
+            otherCursors.set(msg.username, deco);
+          } else {
+            editor.deltaDecorations(d, []);
+            const deco = editor.deltaDecorations([], [{
+              range: new monaco.Range(msg.cursor.lineNumber, msg.cursor.column, msg.cursor.lineNumber, msg.cursor.column),
+              options: {
+                className: "remote-cursor",
+                after: { content: " ", inlineClassName: "cursor-" + msg.username }
+              }
+            }]);
+            otherCursors.set(msg.username, deco);
+          }
+        }
+
+        if (msg.type === "typing") {
+          typingStatus.textContent = `✏️ ${msg.username} is typing...`;
+          clearTimeout(window.typingTimeout);
+          window.typingTimeout = setTimeout(() => {
+            typingStatus.textContent = "🟢 Connected as " + username;
+          }, 1000);
+        }
+      };
+
+      editor.onDidChangeModelContent(() => {
+        if (remoteUpdate) {
+          remoteUpdate = false;
+          return;
+        }
+        const code = editor.getValue();
+        ws.send(JSON.stringify({
+          type: "code",
+          username,
+          code
+        }));
+        ws.send(JSON.stringify({
+          type: "typing",
+          username
+        }));
+      });
+
+      editor.onDidChangeCursorPosition(e => {
+        const pos = e.position;
+        ws.send(JSON.stringify({
+          type: "cursor",
+          username,
+          color,
+          cursor: pos
+        }));
+      });
+    });
+  </script>
+
+  <style>
+    .remote-cursor {
+      border-left: 2px solid red;
+      height: 100%;
+    }
+
+    /* Each user’s cursor style */
+    .cursor-Aadarsh\ Raj {
+      border-left: 2px solid #ff44ff;
+    }
+
+    .cursor-elon {
+      border-left: 2px solid #44ffcc;
+    }
+
+    /* fallback */
+    [class^="cursor-"] {
+      border-left: 2px solid yellow;
+    }
+  </style>
+</body>
+</html>
