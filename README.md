@@ -25,8 +25,8 @@ This is a minimal real-time WebSocket server written in C++ using the WebSocket+
     go inisde the folder
     open terminal
     enter command:
-      * cmake -B build -S .
-      * cmake --build build
-      * ./build/server
+      cmake -B build -S .
+      cmake --build build
+      ./build/server
     open the index.html file and connect multiple clients
 
